@@ -2,6 +2,8 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
+*** I own the older bluetooth only model of cleaner so this integration relies on feedback as i cannot test myself. if your testing this please report any helpful logs so we can get a fully working "plus" integration working locally via bluetooth.
+
 Community integration for **Maytronics Dolphin** robots paired with the **MyDolphin Plus** app (v3.x). Control power and read status locally over Bluetooth — no cloud account required for BLE control.
 
 > **Not the right integration?** Robots using the older **MyDolphin** app (GATT service `FFF0`) should use **[ha-maytronics-dolphin](https://github.com/randrcomputers/ha-maytronics-dolphin)** instead. The two integrations are separate; install only the one that matches your app.
