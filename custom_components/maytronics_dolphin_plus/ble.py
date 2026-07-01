@@ -28,7 +28,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTEGRATION_VERSION = "0.1.3"
+_INTEGRATION_VERSION = "0.1.4"
 
 _PLUS_SERVICE_UUIDS = {
     NUS_SERVICE_UUID.lower(),

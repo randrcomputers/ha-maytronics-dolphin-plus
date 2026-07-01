@@ -86,6 +86,9 @@ def _pick_write_notify(service) -> tuple[str | None, str | None]:
         char = _char_by_uuid(service, write_uuid)
         if char and _char_props(char) & _PROP_NOTIFY:
             return write_uuid, write_uuid
+    # Notify-only (IoT230 / E35i: fd5abba1 is notify on the robot side).
+    if notify_uuid and write_uuid is None:
+        return notify_uuid, notify_uuid
     return write_uuid, notify_uuid
 
 
@@ -104,19 +107,26 @@ def _try_fixed_profile(
     write_char = _char_by_uuid(service, write_uuid)
     notify_char = _char_by_uuid(service, notify_uuid)
     if write_char is None or notify_char is None:
-        # Fixed UUIDs missing — infer from properties (E35i / IoT230 PSU pattern).
         inferred_write, inferred_notify = _pick_write_notify(service)
+        if inferred_write is None and inferred_notify is not None:
+            if transport == TRANSPORT_IOT_GATT:
+                inferred_write = inferred_notify
         if inferred_write is None or inferred_notify is None:
             return None
         write_uuid = inferred_write
         notify_uuid = inferred_notify
     else:
-        w_props = _char_props(write_char)
         n_props = _char_props(notify_char)
-        if not (w_props & _PROP_WRITE):
-            return None
         if not (n_props & _PROP_NOTIFY):
             return None
+        if transport == TRANSPORT_IOT_GATT:
+            # Plus APK: robot fd5abba1 is notify-only; commands go via phone GATT server.
+            write_uuid = notify_char.uuid
+            notify_uuid = notify_char.uuid
+        else:
+            w_props = _char_props(write_char)
+            if not (w_props & _PROP_WRITE):
+                return None
 
     return ResolvedTransport(
         transport,
