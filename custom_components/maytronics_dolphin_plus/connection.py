@@ -1,4 +1,4 @@
-"""BLE client for Dolphin Plus — short sessions over Nordic UART."""
+"""BLE client for Dolphin Plus — short sessions with auto transport discovery."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ from bleak_retry_connector import BleakClientWithServiceCache, establish_connect
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .ble import async_resolve_ble_device, transport_uuids
+from .ble import async_resolve_ble_device
 from .const import (
     DATA_BLE_SESSION,
     DOMAIN,
     OPT_BLE_KEEPALIVE_SEC,
     PROFILE_IOT,
+    TRANSPORT_AUTO,
 )
 from .options import get_integration_options
 from .protocol import (
@@ -27,6 +28,11 @@ from .protocol import (
     load_protocol_spec,
     parse_iot_frame_payload,
     parse_system_status,
+)
+from .transport_discovery import (
+    ResolvedTransport,
+    discover_transport,
+    log_gatt_services,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,11 +58,9 @@ class DolphinPlusBleConnection:
         self.address = address
         self._entry_id = entry_id
         self._profile = profile
-        self._transport = transport
+        self._transport_pref = transport or TRANSPORT_AUTO
         self._spec = load_protocol_spec(profile)
-        self._service_uuid, self._write_uuid, self._notify_uuid = transport_uuids(
-            transport
-        )
+        self._resolved: ResolvedTransport | None = None
         self._lock = asyncio.Lock()
         self._command_waiters = 0
         self._client: BleakClientWithServiceCache | None = None
@@ -95,6 +99,7 @@ class DolphinPlusBleConnection:
         except BleakError:
             _LOGGER.debug("disconnect BleakError (ignored)", exc_info=True)
         self._client = None
+        self._resolved = None
 
     async def _ensure_connected_locked(self) -> BleakClientWithServiceCache:
         if self._shutting_down:
@@ -113,11 +118,21 @@ class DolphinPlusBleConnection:
         if not client.is_connected:
             raise HomeAssistantError("Failed to connect over BLE")
         self._client = client
+        resolved = discover_transport(client, self._transport_pref)
+        if resolved is None:
+            log_gatt_services(client)
+            await self._disconnect_locked()
+            raise HomeAssistantError(
+                "No supported Plus BLE transport on this device. "
+                "E35i / IoT230 power supplies usually need IoT GATT (fd5abba0), "
+                "not Nordic UART — set transport to Auto or Alternate IoT GATT."
+            )
+        self._resolved = resolved
         _LOGGER.debug(
             "Dolphin Plus: BLE connected (%s, profile=%s transport=%s)",
             ble_device.address,
             self._profile,
-            self._transport,
+            resolved.transport,
         )
         return self._client
 
@@ -153,16 +168,24 @@ class DolphinPlusBleConnection:
                     fut.set_result(body if expect_opcode is not None else b"")
 
         client = await self._ensure_connected_locked()
+        resolved = self._resolved
+        if resolved is None:
+            raise HomeAssistantError("Plus BLE transport not resolved")
+
         try:
-            await client.start_notify(self._notify_uuid, _handler)
+            await client.start_notify(resolved.notify_uuid, _handler)
         except BleakError as err:
+            log_gatt_services(client)
             await self._release_after_operation_locked()
-            raise HomeAssistantError(f"BLE notify setup failed: {err}") from err
+            raise HomeAssistantError(
+                f"BLE notify setup failed ({resolved.notify_uuid}): {err}. "
+                "Try transport Auto or Alternate IoT GATT (fd5abba0) for IoT230 PS."
+            ) from err
 
         try:
             await asyncio.sleep(0.15)
             await client.write_gatt_char(
-                self._write_uuid, payload, response=True
+                resolved.write_uuid, payload, response=True
             )
             await asyncio.sleep(_POST_WRITE_DELAY)
             return await asyncio.wait_for(fut, timeout=timeout)
@@ -173,7 +196,7 @@ class DolphinPlusBleConnection:
             raise HomeAssistantError(f"BLE error: {err}") from err
         finally:
             try:
-                await client.stop_notify(self._notify_uuid)
+                await client.stop_notify(resolved.notify_uuid)
             except BleakError:
                 _LOGGER.debug("stop_notify ignored", exc_info=True)
             await self._release_after_operation_locked()

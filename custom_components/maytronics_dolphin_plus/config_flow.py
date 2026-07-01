@@ -26,6 +26,7 @@ from .const import (
     PROFILE_BUOY,
     PROFILE_IOT,
     PROFILE_POP,
+    TRANSPORT_AUTO,
     TRANSPORT_IOT_GATT,
     TRANSPORT_NUS,
     TRANSPORT_POP,
@@ -94,12 +95,16 @@ class MaytronicsDolphinPlusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(
-                                value=TRANSPORT_NUS,
-                                label="Nordic UART (6E400001 — default)",
+                                value=TRANSPORT_AUTO,
+                                label="Auto-detect (recommended)",
                             ),
                             selector.SelectOptionDict(
                                 value=TRANSPORT_IOT_GATT,
-                                label="Alternate IoT GATT (fd5abba0)",
+                                label="IoT GATT (fd5abba0 — IoT230 / E35i PS)",
+                            ),
+                            selector.SelectOptionDict(
+                                value=TRANSPORT_NUS,
+                                label="Nordic UART (6E400001)",
                             ),
                             selector.SelectOptionDict(
                                 value=TRANSPORT_POP,

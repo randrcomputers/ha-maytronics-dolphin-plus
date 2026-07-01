@@ -53,7 +53,7 @@ During setup:
 | Field | Default | When to change |
 |-------|---------|----------------|
 | **Protocol profile** | IoT / PS Plus | POP cordless or buoy models (experimental) |
-| **BLE transport** | Nordic UART (`6E400001`) | Try **Alternate IoT GATT** (`fd5abba0`) if connect/write fails |
+| **BLE transport** | Auto-detect (recommended) | **IoT GATT** for E35i / IoT230 PS; **Nordic UART** for some Liberty-class units |
 
 **Settings → Configure** (after install):
 
