@@ -39,6 +39,66 @@ _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$")
 class MaytronicsDolphinPlusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        return MaytronicsDolphinPlusOptionsFlow()
+
+    def _transport_schema(self, defaults: dict[str, Any]) -> vol.Schema:
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_TRANSPORT,
+                    default=defaults.get(CONF_TRANSPORT, DEFAULT_TRANSPORT),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(
+                                value=TRANSPORT_AUTO,
+                                label="Auto-detect (IoT GATT → NUS → POP)",
+                            ),
+                            selector.SelectOptionDict(
+                                value=TRANSPORT_IOT_GATT,
+                                label="IoT GATT only (fd5abba0 — IoT230 / E35i PS)",
+                            ),
+                            selector.SelectOptionDict(
+                                value=TRANSPORT_NUS,
+                                label="Nordic UART only (6E400001 — Triton PS Plus)",
+                            ),
+                            selector.SelectOptionDict(
+                                value=TRANSPORT_POP,
+                                label="POP UART only (fd5abca0)",
+                            ),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Allow changing BLE transport without re-adding the device."""
+        reconfigure_entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            data = dict(reconfigure_entry.data)
+            data[CONF_TRANSPORT] = user_input[CONF_TRANSPORT]
+            return self.async_update_reload_and_abort(
+                reconfigure_entry, data=data, reason="reconfigure_successful"
+            )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self._transport_schema(dict(reconfigure_entry.data)),
+            description_placeholders={
+                "version": "0.1.2",
+                "current": reconfigure_entry.data.get(
+                    CONF_TRANSPORT, DEFAULT_TRANSPORT
+                ),
+            },
+        )
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -96,7 +156,7 @@ class MaytronicsDolphinPlusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         options=[
                             selector.SelectOptionDict(
                                 value=TRANSPORT_AUTO,
-                                label="Auto-detect (recommended)",
+                                label="Auto-detect (IoT GATT → NUS → POP)",
                             ),
                             selector.SelectOptionDict(
                                 value=TRANSPORT_IOT_GATT,
@@ -104,7 +164,7 @@ class MaytronicsDolphinPlusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             ),
                             selector.SelectOptionDict(
                                 value=TRANSPORT_NUS,
-                                label="Nordic UART (6E400001)",
+                                label="Nordic UART (6E400001 — Triton PS Plus)",
                             ),
                             selector.SelectOptionDict(
                                 value=TRANSPORT_POP,
@@ -117,12 +177,6 @@ class MaytronicsDolphinPlusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
-
-    @staticmethod
-    def async_get_options_flow(
-        config_entry: ConfigEntry,
-    ) -> config_entries.OptionsFlow:
-        return MaytronicsDolphinPlusOptionsFlow()
 
 
 class MaytronicsDolphinPlusOptionsFlow(config_entries.OptionsFlow):

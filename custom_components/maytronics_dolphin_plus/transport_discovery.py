@@ -35,6 +35,8 @@ class ResolvedTransport:
     service_uuid: str
     write_uuid: str
     notify_uuid: str
+    # IOT GATT (fd5abba0): Plus app sends via phone GATT-server notify, not client write.
+    uses_gatt_server_write: bool = False
 
 
 def _uuid_lower(value: str) -> str:
@@ -116,7 +118,38 @@ def _try_fixed_profile(
         if not (n_props & _PROP_NOTIFY):
             return None
 
-    return ResolvedTransport(transport, service_uuid, write_uuid, notify_uuid)
+    return ResolvedTransport(
+        transport,
+        service_uuid,
+        write_uuid,
+        notify_uuid,
+        uses_gatt_server_write=(transport == TRANSPORT_IOT_GATT),
+    )
+
+
+def _scan_generic_transports(client: BleakClient) -> list[ResolvedTransport]:
+    """Last resort: any service with separate or combined write + notify."""
+    found: list[ResolvedTransport] = []
+    for service in client.services:
+        write_uuid, notify_uuid = _pick_write_notify(service)
+        if write_uuid is None or notify_uuid is None:
+            continue
+        svc = _uuid_lower(service.uuid)
+        if svc in {
+            _uuid_lower(IOT_SERVICE_UUID),
+            _uuid_lower(NUS_SERVICE_UUID),
+            _uuid_lower(POP_SERVICE_UUID),
+        }:
+            continue
+        found.append(
+            ResolvedTransport(
+                TRANSPORT_AUTO,
+                service.uuid,
+                write_uuid,
+                notify_uuid,
+            )
+        )
+    return found
 
 
 def _transport_candidates(preferred: str) -> list[tuple[str, str, str, str]]:
@@ -128,7 +161,7 @@ def _transport_candidates(preferred: str) -> list[tuple[str, str, str, str]]:
     if preferred == TRANSPORT_AUTO:
         return profiles
     if preferred in {p[0] for p in profiles}:
-        profiles.sort(key=lambda row: 0 if row[0] == preferred else 1)
+        return [row for row in profiles if row[0] == preferred]
     return profiles
 
 
@@ -147,40 +180,46 @@ def discover_transport(
             notify_uuid=notify_uuid,
         )
         if resolved is not None:
-            if transport != preferred:
-                _LOGGER.info(
-                    "Dolphin Plus: using %s transport (configured %s) "
-                    "write=%s notify=%s",
-                    resolved.transport,
-                    preferred,
-                    resolved.write_uuid,
-                    resolved.notify_uuid,
-                )
-            else:
-                _LOGGER.debug(
-                    "Dolphin Plus: transport %s write=%s notify=%s",
-                    resolved.transport,
-                    resolved.write_uuid,
-                    resolved.notify_uuid,
-                )
+            _LOGGER.info(
+                "Dolphin Plus: BLE transport=%s (configured=%s) "
+                "service=%s write=%s notify=%s gatt_server_write=%s",
+                resolved.transport,
+                preferred,
+                resolved.service_uuid,
+                resolved.write_uuid,
+                resolved.notify_uuid,
+                resolved.uses_gatt_server_write,
+            )
             return resolved
 
+    if preferred == TRANSPORT_AUTO:
+        for resolved in _scan_generic_transports(client):
+            _LOGGER.info(
+                "Dolphin Plus: generic BLE transport service=%s write=%s notify=%s",
+                resolved.service_uuid,
+                resolved.write_uuid,
+                resolved.notify_uuid,
+            )
+            return resolved
+
+    log_gatt_services(client, level=logging.WARNING)
     _LOGGER.warning(
-        "Dolphin Plus: no supported BLE transport found (preferred=%s). "
-        "GATT services: %s",
+        "Dolphin Plus: no supported BLE transport found (preferred=%s)",
         preferred,
-        ", ".join(sorted({s.uuid for s in client.services})),
     )
     return None
 
 
-def log_gatt_services(client: BleakClient) -> None:
-    """Debug helper when notify setup fails."""
+def log_gatt_services(
+    client: BleakClient, *, level: int = logging.DEBUG
+) -> None:
+    """Log discovered GATT tree (WARNING when setup fails)."""
     for service in client.services:
         chars = []
         for char in service.characteristics:
             chars.append(f"{char.uuid} [{','.join(char.properties)}]")
-        _LOGGER.debug(
+        _LOGGER.log(
+            level,
             "Dolphin Plus GATT service %s → %s",
             service.uuid,
             "; ".join(chars) if chars else "(no characteristics)",

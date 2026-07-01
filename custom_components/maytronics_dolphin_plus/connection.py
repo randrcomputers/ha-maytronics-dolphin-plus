@@ -18,6 +18,7 @@ from .const import (
     OPT_BLE_KEEPALIVE_SEC,
     PROFILE_IOT,
     TRANSPORT_AUTO,
+    TRANSPORT_IOT_GATT,
 )
 from .options import get_integration_options
 from .protocol import (
@@ -36,6 +37,8 @@ from .transport_discovery import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_INTEGRATION_VERSION = "0.1.2"
 
 _BLE_CONNECT_TIMEOUT = 35.0
 _NOTIFY_TIMEOUT = 4.0
@@ -120,19 +123,20 @@ class DolphinPlusBleConnection:
         self._client = client
         resolved = discover_transport(client, self._transport_pref)
         if resolved is None:
-            log_gatt_services(client)
             await self._disconnect_locked()
             raise HomeAssistantError(
-                "No supported Plus BLE transport on this device. "
-                "E35i / IoT230 power supplies usually need IoT GATT (fd5abba0), "
-                "not Nordic UART — set transport to Auto or Alternate IoT GATT."
+                f"[v{_INTEGRATION_VERSION}] No supported Plus BLE transport on this "
+                f"device (configured={self._transport_pref!r}). "
+                "E35i / IoT230 power supplies need IoT GATT (fd5abba0), not "
+                "Nordic UART (6e400001). Check logs for a full GATT service dump."
             )
         self._resolved = resolved
-        _LOGGER.debug(
-            "Dolphin Plus: BLE connected (%s, profile=%s transport=%s)",
+        _LOGGER.info(
+            "Dolphin Plus v%s: connected %s transport=%s notify=%s",
+            _INTEGRATION_VERSION,
             ble_device.address,
-            self._profile,
             resolved.transport,
+            resolved.notify_uuid,
         )
         return self._client
 
@@ -175,18 +179,25 @@ class DolphinPlusBleConnection:
         try:
             await client.start_notify(resolved.notify_uuid, _handler)
         except BleakError as err:
-            log_gatt_services(client)
+            log_gatt_services(client, level=logging.WARNING)
             await self._release_after_operation_locked()
             raise HomeAssistantError(
-                f"BLE notify setup failed ({resolved.notify_uuid}): {err}. "
-                "Try transport Auto or Alternate IoT GATT (fd5abba0) for IoT230 PS."
+                f"[v{_INTEGRATION_VERSION}] BLE notify setup failed "
+                f"(transport={resolved.transport!r}, notify={resolved.notify_uuid}): "
+                f"{err}. If you still see 6e400003 here, Home Assistant is running "
+                "old integration code — reinstall from ha-maytronics-dolphin-plus "
+                "v0.1.2+ and remove any copy under ha-maytronics-dolphin."
             ) from err
+
+        if resolved.uses_gatt_server_write:
+            _LOGGER.debug(
+                "Dolphin Plus: IoT GATT write path uses client write fallback; "
+                "Plus app uses phone GATT-server notify for fd5abba1"
+            )
 
         try:
             await asyncio.sleep(0.15)
-            await client.write_gatt_char(
-                resolved.write_uuid, payload, response=True
-            )
+            await self._write_payload(client, resolved, payload)
             await asyncio.sleep(_POST_WRITE_DELAY)
             return await asyncio.wait_for(fut, timeout=timeout)
         except asyncio.TimeoutError:
@@ -200,6 +211,32 @@ class DolphinPlusBleConnection:
             except BleakError:
                 _LOGGER.debug("stop_notify ignored", exc_info=True)
             await self._release_after_operation_locked()
+
+    async def _write_payload(
+        self,
+        client: BleakClientWithServiceCache,
+        resolved: ResolvedTransport,
+        payload: bytes,
+    ) -> None:
+        """Write command bytes; try with-response then without-response."""
+        last_err: BleakError | None = None
+        for response in (True, False):
+            try:
+                await client.write_gatt_char(
+                    resolved.write_uuid, payload, response=response
+                )
+                return
+            except BleakError as err:
+                last_err = err
+        if last_err is not None:
+            if resolved.transport == TRANSPORT_IOT_GATT:
+                raise HomeAssistantError(
+                    f"[v{_INTEGRATION_VERSION}] IoT GATT client write failed on "
+                    f"{resolved.write_uuid}. The Plus app sends commands via a phone "
+                    "GATT-server notify on fd5abba1 (not client write). Full IoT230 "
+                    "support may require GATT-server mode on the HA host."
+                ) from last_err
+            raise last_err
 
     async def async_send_command(self, payload: bytes, *, expect_opcode: int | None) -> None:
         self._command_waiters += 1
