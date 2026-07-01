@@ -92,7 +92,7 @@ class MaytronicsDolphinPlusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=self._transport_schema(dict(reconfigure_entry.data)),
             description_placeholders={
-                "version": "0.1.2",
+                "version": "0.1.3",
                 "current": reconfigure_entry.data.get(
                     CONF_TRANSPORT, DEFAULT_TRANSPORT
                 ),

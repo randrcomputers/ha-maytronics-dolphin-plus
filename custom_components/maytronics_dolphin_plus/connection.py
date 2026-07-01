@@ -22,11 +22,11 @@ from .const import (
 )
 from .options import get_integration_options
 from .protocol import (
+    async_load_protocol_spec,
     build_shutdown,
     build_startup,
     build_system_status_request,
     iter_iot_frames,
-    load_protocol_spec,
     parse_iot_frame_payload,
     parse_system_status,
 )
@@ -38,7 +38,7 @@ from .transport_discovery import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTEGRATION_VERSION = "0.1.2"
+_INTEGRATION_VERSION = "0.1.3"
 
 _BLE_CONNECT_TIMEOUT = 35.0
 _NOTIFY_TIMEOUT = 4.0
@@ -62,7 +62,7 @@ class DolphinPlusBleConnection:
         self._entry_id = entry_id
         self._profile = profile
         self._transport_pref = transport or TRANSPORT_AUTO
-        self._spec = load_protocol_spec(profile)
+        self._spec: dict[str, Any] | None = None
         self._resolved: ResolvedTransport | None = None
         self._lock = asyncio.Lock()
         self._command_waiters = 0
@@ -80,6 +80,11 @@ class DolphinPlusBleConnection:
     def is_connected(self) -> bool:
         c = self._client
         return c is not None and c.is_connected
+
+    async def _ensure_spec(self) -> dict[str, Any]:
+        if self._spec is None:
+            self._spec = await async_load_protocol_spec(self.hass, self._profile)
+        return self._spec
 
     def _options(self) -> dict[str, int | bool]:
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
@@ -247,19 +252,22 @@ class DolphinPlusBleConnection:
             self._command_waiters = max(0, self._command_waiters - 1)
 
     async def async_startup(self) -> None:
-        payload = build_startup(self._spec)
+        spec = await self._ensure_spec()
+        payload = build_startup(spec)
         _LOGGER.info("Dolphin Plus STARTUP → %s", payload.hex())
         await self.async_send_command(payload, expect_opcode=None)
 
     async def async_shutdown(self) -> None:
-        payload = build_shutdown(self._spec)
+        spec = await self._ensure_spec()
+        payload = build_shutdown(spec)
         _LOGGER.info("Dolphin Plus SHUTDOWN → %s", payload.hex())
         await self.async_send_command(payload, expect_opcode=None)
 
     async def async_read_system_status(self) -> dict[str, int | None] | None:
         if self._command_waiters > 0:
             return None
-        payload = build_system_status_request(self._spec)
+        spec = await self._ensure_spec()
+        payload = build_system_status_request(spec)
         self._command_waiters += 1
         try:
             async with self._lock:

@@ -12,6 +12,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from homeassistant.core import HomeAssistant
+
 _LOGGER = logging.getLogger(__name__)
 
 SOP_IOT = 0xAB
@@ -47,6 +49,13 @@ def load_protocol_spec(profile: str) -> dict[str, Any]:
     path = _protocol_json_path(profile)
     with path.open(encoding="utf-8-sig") as f:
         return json.load(f)
+
+
+async def async_load_protocol_spec(
+    hass: HomeAssistant, profile: str
+) -> dict[str, Any]:
+    """Load protocol JSON off the event loop (avoids blocking-call warnings)."""
+    return await hass.async_add_executor_job(load_protocol_spec, profile)
 
 
 def iot_checksum(data: bytes) -> bytes:
