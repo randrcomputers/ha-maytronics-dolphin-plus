@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Maytronics Dolphin Plus (BLE)",
+        "description": "Local Bluetooth control for robots paired with the MyDolphin Plus app (v3.x). Enter the BLE MAC from your phone or HA Bluetooth. Legacy MyDolphin robots should use the other integration.",
+        "data": {
+          "address": "Bluetooth MAC address",
+          "name": "Device name (optional)",
+          "profile": "Protocol profile",
+          "transport": "BLE transport"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Invalid MAC address (use format AA:BB:CC:DD:EE:FF)"
+    },
+    "abort": {
+      "already_configured": "This device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Dolphin Plus options",
+        "description": "HA connects for each poll/command, then disconnects (same pattern as the legacy BLE integration). Close the Plus app on your phone while controlling from HA.",
+        "data": {
+          "ble_keepalive_seconds": "Periodic BLE release interval",
+          "state_poll_seconds": "Status poll interval"
+        }
+      }
+    }
+  }
+}
