@@ -39,7 +39,7 @@ from .transport_discovery import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTEGRATION_VERSION = "0.1.5"
+_INTEGRATION_VERSION = "0.1.6"
 
 _BLE_CONNECT_TIMEOUT = 35.0
 _NOTIFY_TIMEOUT = 4.0
@@ -150,7 +150,11 @@ class DolphinPlusBleConnection:
                 await server.register()
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
-                    "Dolphin Plus: IoT GATT server registration failed: %s", err
+                    "Dolphin Plus: IoT GATT server registration failed (%s). "
+                    "IoT230/E35i commands need BlueZ system D-Bus on the HA host "
+                    "(HA OS built-in Bluetooth). ESPHome proxies cannot host the "
+                    "GATT server — use built-in BT or test from the HA machine.",
+                    err,
                 )
             else:
                 self._iot_server = server
@@ -225,8 +229,9 @@ class DolphinPlusBleConnection:
                             "Dolphin Plus: IoT GATT server notify failed: %s", err
                         )
                 if not sent:
-                    _LOGGER.debug(
-                        "Dolphin Plus: falling back to client write for IoT command"
+                    _LOGGER.warning(
+                        "Dolphin Plus: IoT GATT server notify unavailable; "
+                        "trying client write fallback (often ignored by IoT PS)"
                     )
                     await self._write_payload(client, resolved, payload)
             else:

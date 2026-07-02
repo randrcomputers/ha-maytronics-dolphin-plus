@@ -44,14 +44,15 @@ class IotGattServer:
         if self._registered:
             return
         try:
-            from dbus_fast.aio import MessageBus  # noqa: PLC0415
-            from dbus_fast.constants import PropertyAccess  # noqa: PLC0415
-            from dbus_fast.service import ServiceInterface, method, dbus_property  # noqa: PLC0415
             from dbus_fast import Variant  # noqa: PLC0415
+            from dbus_fast.aio import MessageBus  # noqa: PLC0415
+            from dbus_fast.constants import BusType, PropertyAccess  # noqa: PLC0415
+            from dbus_fast.service import ServiceInterface, dbus_property, method  # noqa: PLC0415
         except ImportError as err:
             raise RuntimeError("dbus_fast is required for IoT GATT server mode") from err
 
-        bus = await MessageBus().connect()
+        # BlueZ lives on the system bus — session bus fails on HA OS / headless hosts.
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
         char_holder: dict[str, Any] = {}
 
         class _Desc(ServiceInterface):
@@ -92,6 +93,7 @@ class IotGattServer:
                 self._service_path = service_path
                 self._desc_path = desc_path
                 self._notifying = False
+                self._value = bytearray()
 
             @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
             def UUID(self) -> str:
@@ -239,6 +241,7 @@ class IotGattServer:
             )
             return False
         self._value = bytearray(payload)
+        self._char._value = bytearray(payload)
         self._char.emit_properties_changed({"Value": payload}, [])
         _LOGGER.info(
             "Dolphin Plus: IoT GATT server notify sent (%d bytes): %s",
