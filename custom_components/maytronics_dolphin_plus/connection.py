@@ -15,10 +15,19 @@ from .ble import async_resolve_ble_device
 from .const import (
     DATA_BLE_SESSION,
     DOMAIN,
+    IOT_GATT_BACKEND_AUTO,
+    IOT_GATT_BACKEND_BLUEZ,
+    IOT_GATT_BACKEND_ESPHOME,
     OPT_BLE_KEEPALIVE_SEC,
+    OPT_ESPHOME_DEVICE,
+    OPT_IOT_GATT_BACKEND,
     PROFILE_IOT,
     TRANSPORT_AUTO,
     TRANSPORT_IOT_GATT,
+)
+from .iot_gatt_esphome import (
+    async_esphome_iot_notify,
+    async_resolve_esphome_notify_service,
 )
 from .options import get_integration_options
 from .protocol import (
@@ -39,7 +48,7 @@ from .transport_discovery import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTEGRATION_VERSION = "0.1.6"
+_INTEGRATION_VERSION = "0.1.8"
 
 _BLE_CONNECT_TIMEOUT = 35.0
 _NOTIFY_TIMEOUT = 4.0
@@ -69,6 +78,8 @@ class DolphinPlusBleConnection:
         self._command_waiters = 0
         self._client: BleakClientWithServiceCache | None = None
         self._iot_server: IotGattServer | None = None
+        self._iot_gatt_mode: str | None = None
+        self._esphome_notify_service: str | None = None
         self._shutting_down = False
 
     @property
@@ -88,7 +99,7 @@ class DolphinPlusBleConnection:
             self._spec = await async_load_protocol_spec(self.hass, self._profile)
         return self._spec
 
-    def _options(self) -> dict[str, int | bool]:
+    def _options(self) -> dict[str, int | str | None]:
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
         if entry is None:
             return {}
@@ -110,6 +121,8 @@ class DolphinPlusBleConnection:
             _LOGGER.debug("disconnect BleakError (ignored)", exc_info=True)
         self._client = None
         self._resolved = None
+        self._iot_gatt_mode = None
+        self._esphome_notify_service = None
         if self._iot_server is not None:
             try:
                 await self._iot_server.unregister()
@@ -144,20 +157,8 @@ class DolphinPlusBleConnection:
                 "Nordic UART (6e400001). Check logs for a full GATT service dump."
             )
         self._resolved = resolved
-        if resolved.uses_gatt_server_write and self._iot_server is None:
-            server = IotGattServer(self._entry_id)
-            try:
-                await server.register()
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Dolphin Plus: IoT GATT server registration failed (%s). "
-                    "IoT230/E35i commands need BlueZ system D-Bus on the HA host "
-                    "(HA OS built-in Bluetooth). ESPHome proxies cannot host the "
-                    "GATT server — use built-in BT or test from the HA machine.",
-                    err,
-                )
-            else:
-                self._iot_server = server
+        if resolved.uses_gatt_server_write:
+            await self._setup_iot_gatt_send_locked()
         _LOGGER.info(
             "Dolphin Plus v%s: connected %s transport=%s notify=%s",
             _INTEGRATION_VERSION,
@@ -166,6 +167,86 @@ class DolphinPlusBleConnection:
             resolved.notify_uuid,
         )
         return self._client
+
+    async def _setup_iot_gatt_send_locked(self) -> None:
+        """Register BlueZ GATT server and/or bind ESPHome proxy notify service."""
+        if self._iot_gatt_mode is not None:
+            return
+
+        opts = self._options()
+        backend = str(opts.get(OPT_IOT_GATT_BACKEND, IOT_GATT_BACKEND_AUTO))
+        esphome_device = opts.get(OPT_ESPHOME_DEVICE)
+        esphome_service: str | None = None
+        if esphome_device:
+            esphome_service = async_resolve_esphome_notify_service(
+                self.hass, str(esphome_device)
+            )
+
+        prefer_bluez = backend in (IOT_GATT_BACKEND_AUTO, IOT_GATT_BACKEND_BLUEZ)
+        prefer_esphome = backend in (IOT_GATT_BACKEND_AUTO, IOT_GATT_BACKEND_ESPHOME)
+        if backend == IOT_GATT_BACKEND_ESPHOME:
+            prefer_bluez = False
+
+        if prefer_bluez:
+            server = IotGattServer(self._entry_id)
+            try:
+                await server.register()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Dolphin Plus: local BlueZ GATT server registration failed (%s)",
+                    err,
+                )
+            else:
+                self._iot_server = server
+                self._iot_gatt_mode = "bluez"
+                _LOGGER.info(
+                    "Dolphin Plus: IoT commands via local BlueZ GATT server"
+                )
+                return
+
+        if prefer_esphome and esphome_service:
+            self._esphome_notify_service = esphome_service
+            self._iot_gatt_mode = "esphome"
+            _LOGGER.info(
+                "Dolphin Plus: IoT commands via ESPHome esphome.%s",
+                esphome_service,
+            )
+            return
+
+        if backend == IOT_GATT_BACKEND_ESPHOME:
+            _LOGGER.warning(
+                "Dolphin Plus: IoT command backend is ESPHome but no "
+                "esphome.*_dolphin_iot_notify service was found. Flash "
+                "esphome/dolphin-plus-ble-proxy.yaml.example on your pool "
+                "proxy and select it in integration options."
+            )
+        else:
+            _LOGGER.warning(
+                "Dolphin Plus: IoT GATT command path unavailable. Use a USB "
+                "Bluetooth dongle on the HA host, or flash the dolphin-plus ESPHome "
+                "package on a pool proxy and select it under integration options."
+            )
+
+    async def _iot_gatt_notify_locked(self, payload: bytes) -> bool:
+        if self._iot_gatt_mode == "bluez" and self._iot_server is not None:
+            try:
+                return await self._iot_server.notify(payload)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Dolphin Plus: BlueZ IoT GATT server notify failed: %s", err
+                )
+                return False
+        if self._iot_gatt_mode == "esphome" and self._esphome_notify_service:
+            try:
+                return await async_esphome_iot_notify(
+                    self.hass, self._esphome_notify_service, payload
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Dolphin Plus: ESPHome IoT GATT notify failed: %s", err
+                )
+                return False
+        return False
 
     async def _release_after_operation_locked(self) -> None:
         await self._disconnect_locked()
@@ -220,14 +301,7 @@ class DolphinPlusBleConnection:
         try:
             await asyncio.sleep(0.15)
             if resolved.uses_gatt_server_write:
-                sent = False
-                if self._iot_server is not None:
-                    try:
-                        sent = await self._iot_server.notify(payload)
-                    except Exception as err:  # noqa: BLE001
-                        _LOGGER.warning(
-                            "Dolphin Plus: IoT GATT server notify failed: %s", err
-                        )
+                sent = await self._iot_gatt_notify_locked(payload)
                 if not sent:
                     _LOGGER.warning(
                         "Dolphin Plus: IoT GATT server notify unavailable; "

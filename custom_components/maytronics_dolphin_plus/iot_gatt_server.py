@@ -1,4 +1,4 @@
-"""Local BlueZ GATT server for IoT Plus send path (mirrors phone app p/b/i)."""
+"""Local BlueZ GATT server for IoT Plus send path (mirrors Plus app p/b/i + IotBleService)."""
 
 from __future__ import annotations
 
@@ -30,15 +30,12 @@ class IotGattServer:
         self._desc_path = f"{self._char_path}/desc0"
         self._app_path = f"{self._root}/app"
         self._bus: Any = None
-        self._app: Any = None
         self._char: Any = None
         self._registered = False
-        self._notifying = False
-        self._value = bytearray()
 
     @property
     def notifying(self) -> bool:
-        return self._notifying
+        return bool(self._char and self._char._notifying)
 
     async def register(self) -> None:
         if self._registered:
@@ -51,34 +48,32 @@ class IotGattServer:
         except ImportError as err:
             raise RuntimeError("dbus_fast is required for IoT GATT server mode") from err
 
-        # BlueZ lives on the system bus — session bus fails on HA OS / headless hosts.
         bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
         char_holder: dict[str, Any] = {}
 
         class _Desc(ServiceInterface):
-            def __init__(self, char_path: str, desc_path: str) -> None:
+            def __init__(self, char_path: str) -> None:
                 super().__init__(GATT_DESC)
                 self._char_path = char_path
-                self._desc_path = desc_path
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def UUID(self) -> str:
+            @dbus_property(access=PropertyAccess.READ)
+            def UUID(self) -> "s":  # type: ignore[valid-type]
                 return CCCD_UUID
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Characteristic(self) -> str:
+            @dbus_property(access=PropertyAccess.READ)
+            def Characteristic(self) -> "o":  # type: ignore[valid-type]
                 return self._char_path
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Flags(self) -> list[str]:
+            @dbus_property(access=PropertyAccess.READ)
+            def Flags(self) -> "as":  # type: ignore[valid-type]
                 return ["read", "write"]
 
             @method()
-            def ReadValue(self, options: dict) -> bytes:  # noqa: ARG002
+            def ReadValue(self, options: "a{sv}") -> "ay":  # type: ignore[valid-type]  # noqa: ARG002
                 return bytes([0x00, 0x00])
 
             @method()
-            def WriteValue(self, value: bytes, options: dict) -> None:  # noqa: ARG002
+            def WriteValue(self, value: "ay", options: "a{sv}") -> "":  # type: ignore[valid-type]  # noqa: ARG002
                 if value and value[0] & 0x01:
                     char_holder["iface"]._notifying = True
                     _LOGGER.info(
@@ -95,33 +90,33 @@ class IotGattServer:
                 self._notifying = False
                 self._value = bytearray()
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def UUID(self) -> str:
+            @dbus_property(access=PropertyAccess.READ)
+            def UUID(self) -> "s":  # type: ignore[valid-type]
                 return IOT_NOTIFY_UUID
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Service(self) -> str:
+            @dbus_property(access=PropertyAccess.READ)
+            def Service(self) -> "o":  # type: ignore[valid-type]
                 return self._service_path
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Flags(self) -> list[str]:
+            @dbus_property(access=PropertyAccess.READ)
+            def Flags(self) -> "as":  # type: ignore[valid-type]
                 return ["notify"]
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Descriptors(self) -> list[str]:
+            @dbus_property(access=PropertyAccess.READ)
+            def Descriptors(self) -> "ao":  # type: ignore[valid-type]
                 return [self._desc_path]
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Value(self) -> bytes:
+            @dbus_property(access=PropertyAccess.READ)
+            def Value(self) -> "ay":  # type: ignore[valid-type]
                 return bytes(self._value)
 
             @method()
-            def StartNotify(self) -> None:
+            def StartNotify(self) -> "":
                 self._notifying = True
                 _LOGGER.info("Dolphin Plus: StartNotify on local IoT GATT char")
 
             @method()
-            def StopNotify(self) -> None:
+            def StopNotify(self) -> "":
                 self._notifying = False
 
         class _Service(ServiceInterface):
@@ -130,42 +125,38 @@ class IotGattServer:
                 self._service_path = service_path
                 self._char_path = char_path
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def UUID(self) -> str:
+            @dbus_property(access=PropertyAccess.READ)
+            def UUID(self) -> "s":  # type: ignore[valid-type]
                 return IOT_SERVICE_UUID
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Primary(self) -> bool:
+            @dbus_property(access=PropertyAccess.READ)
+            def Primary(self) -> "b":  # type: ignore[valid-type]
                 return True
 
-            @dbus_property(access=PropertyAccess.READ)  # type: ignore[misc]
-            def Characteristics(self) -> list[str]:
+            @dbus_property(access=PropertyAccess.READ)
+            def Characteristics(self) -> "ao":  # type: ignore[valid-type]
                 return [self._char_path]
 
         class _App(ServiceInterface):
             def __init__(
                 self,
-                app_path: str,
                 service_path: str,
                 char_path: str,
                 desc_path: str,
             ) -> None:
                 super().__init__(DBUS_OM)
-                self._app_path = app_path
                 self._service_path = service_path
                 self._char_path = char_path
                 self._desc_path = desc_path
 
             @method()
-            def GetManagedObjects(self) -> dict:
+            def GetManagedObjects(self) -> "a{oa{sa{sv}}}":  # type: ignore[valid-type]
                 return {
                     self._service_path: {
                         GATT_SERVICE: {
                             "UUID": Variant("s", IOT_SERVICE_UUID),
                             "Primary": Variant("b", True),
-                            "Characteristics": Variant(
-                                "ao", [self._char_path]
-                            ),
+                            "Characteristics": Variant("ao", [self._char_path]),
                         }
                     },
                     self._char_path: {
@@ -185,16 +176,11 @@ class IotGattServer:
                     },
                 }
 
-        desc = _Desc(self._char_path, self._desc_path)
+        desc = _Desc(self._char_path)
         char = _Char(self._service_path, self._desc_path)
         char_holder["iface"] = char
         service = _Service(self._service_path, self._char_path)
-        app = _App(
-            self._app_path,
-            self._service_path,
-            self._char_path,
-            self._desc_path,
-        )
+        app = _App(self._service_path, self._char_path, self._desc_path)
 
         for path, iface in (
             (self._app_path, app),
@@ -210,7 +196,6 @@ class IotGattServer:
         await gatt_mgr.call_register_application(self._app_path, {})
 
         self._bus = bus
-        self._app = app
         self._char = char
         self._registered = True
         _LOGGER.info(
@@ -223,11 +208,11 @@ class IotGattServer:
         ).get_interface(DBUS_OM)
         objects = await om.call_get_managed_objects()
         for path, ifaces in objects.items():
-            if GATT_MANAGER in ifaces and path.startswith("/org/bluez/hci"):
+            if GATT_MANAGER in ifaces and str(path).startswith("/org/bluez/hci"):
                 return str(path)
         raise RuntimeError("No BlueZ adapter with GattManager1 found")
 
-    async def notify(self, payload: bytes, *, wait_subscriber_sec: float = 3.0) -> bool:
+    async def notify(self, payload: bytes, *, wait_subscriber_sec: float = 5.0) -> bool:
         if not self._registered or self._char is None:
             return False
         deadline = asyncio.get_running_loop().time() + wait_subscriber_sec
@@ -240,7 +225,6 @@ class IotGattServer:
                 "Dolphin Plus: robot has not subscribed to local IoT GATT server yet"
             )
             return False
-        self._value = bytearray(payload)
         self._char._value = bytearray(payload)
         self._char.emit_properties_changed({"Value": payload}, [])
         _LOGGER.info(

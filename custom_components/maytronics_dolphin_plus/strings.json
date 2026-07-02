@@ -23,12 +23,18 @@
     "step": {
       "init": {
         "title": "Dolphin Plus options",
-        "description": "HA connects for each poll/command, then disconnects (same pattern as the legacy BLE integration). Close the Plus app on your phone while controlling from HA.",
+        "description": "IoT PSU robots (E35i / IoT230) need a command path: local BlueZ GATT server (dongle on HA) or an ESPHome proxy flashed with esphome/dolphin-plus-ble-proxy.yaml.example. Close the Plus app on your phone while HA controls the robot.",
         "data": {
+          "iot_gatt_backend": "IoT command backend",
+          "esphome_device_id": "ESPHome proxy device (for proxy setups)",
           "ble_keepalive_seconds": "Periodic BLE release interval",
           "state_poll_seconds": "Status poll interval"
         }
       }
+    },
+    "error": {
+      "esphome_device_required": "Select an ESPHome proxy device when using the ESPHome backend.",
+      "esphome_notify_missing": "That ESPHome device has no dolphin_iot_notify action. Flash esphome/dolphin-plus-ble-proxy.yaml.example first."
     }
   }
 }

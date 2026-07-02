@@ -17,11 +17,17 @@ from .const import (
     CONF_NAME,
     CONF_PROFILE,
     CONF_TRANSPORT,
+    DEFAULT_IOT_GATT_BACKEND,
     DEFAULT_NAME,
     DEFAULT_PROFILE,
     DEFAULT_TRANSPORT,
     DOMAIN,
+    IOT_GATT_BACKEND_AUTO,
+    IOT_GATT_BACKEND_BLUEZ,
+    IOT_GATT_BACKEND_ESPHOME,
     OPT_BLE_KEEPALIVE_SEC,
+    OPT_ESPHOME_DEVICE,
+    OPT_IOT_GATT_BACKEND,
     OPT_STATE_POLL_SEC,
     PROFILE_BUOY,
     PROFILE_IOT,
@@ -31,6 +37,7 @@ from .const import (
     TRANSPORT_NUS,
     TRANSPORT_POP,
 )
+from .iot_gatt_esphome import async_resolve_esphome_notify_service
 from .options import get_integration_options
 
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$")
@@ -183,12 +190,54 @@ class MaytronicsDolphinPlusOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            backend = user_input.get(OPT_IOT_GATT_BACKEND, DEFAULT_IOT_GATT_BACKEND)
+            esphome_device = user_input.get(OPT_ESPHOME_DEVICE)
+            if backend == IOT_GATT_BACKEND_ESPHOME and not esphome_device:
+                errors["base"] = "esphome_device_required"
+            elif esphome_device and not async_resolve_esphome_notify_service(
+                self.hass, esphome_device
+            ):
+                errors["base"] = "esphome_notify_missing"
+            else:
+                return self.async_create_entry(title="", data=user_input)
 
         current = get_integration_options(self.config_entry)
         schema = vol.Schema(
             {
+                vol.Required(
+                    OPT_IOT_GATT_BACKEND,
+                    default=current.get(OPT_IOT_GATT_BACKEND, DEFAULT_IOT_GATT_BACKEND),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(
+                                value=IOT_GATT_BACKEND_AUTO,
+                                label="Auto (BlueZ dongle, then ESPHome proxy)",
+                            ),
+                            selector.SelectOptionDict(
+                                value=IOT_GATT_BACKEND_BLUEZ,
+                                label="Local BlueZ GATT server (USB / built-in BT)",
+                            ),
+                            selector.SelectOptionDict(
+                                value=IOT_GATT_BACKEND_ESPHOME,
+                                label="ESPHome proxy GATT server",
+                            ),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    OPT_ESPHOME_DEVICE,
+                    description={
+                        "suggested_value": current.get(OPT_ESPHOME_DEVICE),
+                    },
+                ): selector.DeviceSelector(
+                    selector.DeviceSelectorConfig(
+                        filter=selector.DeviceFilter(integration="esphome"),
+                    )
+                ),
                 vol.Required(
                     OPT_BLE_KEEPALIVE_SEC,
                     default=current[OPT_BLE_KEEPALIVE_SEC],
@@ -215,4 +264,6 @@ class MaytronicsDolphinPlusOptionsFlow(config_entries.OptionsFlow):
                 ),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init", data_schema=schema, errors=errors
+        )

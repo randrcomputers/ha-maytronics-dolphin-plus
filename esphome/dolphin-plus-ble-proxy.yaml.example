@@ -1,0 +1,46 @@
+# Add these blocks to an EXISTING ESPHome bluetooth_proxy config.
+# Do not duplicate `api:` — merge `actions:` into your current `api:` section.
+#
+# After flash: Dolphin Plus → Configure → ESPHome proxy device → select this ESP.
+# Requires ESPHome 2024.11+ and esp-idf framework.
+
+# If you don't already have esp32_ble, add this (raises shared client+server limit):
+esp32_ble:
+  max_connections: 5
+
+esp32_ble_server:
+  max_clients: 2
+  services:
+    - uuid: "fd5abba0-3935-11e5-85a6-0002a5d5c51b"
+      advertise: true
+      characteristics:
+        - id: dolphin_iot_cmd
+          uuid: "fd5abba1-3935-11e5-85a6-0002a5d5c51b"
+          notify: true
+          read: true
+          value:
+            data: [0x00]
+
+script:
+  - id: dolphin_iot_notify_script
+    mode: queued
+    parameters:
+      payload: int[]
+    then:
+      - lambda: |-
+          std::vector<uint8_t> bytes;
+          for (int b : payload) {
+            bytes.push_back((uint8_t)(b & 0xFF));
+          }
+          id(dolphin_iot_cmd)->set_value(bytes);
+      - ble_server.characteristic.notify:
+          id: dolphin_iot_cmd
+
+# Merge into your existing `api:` block (do not create a second `api:` key):
+# api:
+#   actions:
+#     - action: dolphin_iot_notify
+#       variables:
+#         payload: int[]
+#       then:
+#         - lambda: "id(dolphin_iot_notify_script)->execute(payload);"
