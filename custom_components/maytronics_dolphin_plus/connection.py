@@ -30,6 +30,7 @@ from .protocol import (
     parse_iot_frame_payload,
     parse_system_status,
 )
+from .iot_gatt_server import IotGattServer
 from .transport_discovery import (
     ResolvedTransport,
     discover_transport,
@@ -38,7 +39,7 @@ from .transport_discovery import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTEGRATION_VERSION = "0.1.4"
+_INTEGRATION_VERSION = "0.1.5"
 
 _BLE_CONNECT_TIMEOUT = 35.0
 _NOTIFY_TIMEOUT = 4.0
@@ -67,6 +68,7 @@ class DolphinPlusBleConnection:
         self._lock = asyncio.Lock()
         self._command_waiters = 0
         self._client: BleakClientWithServiceCache | None = None
+        self._iot_server: IotGattServer | None = None
         self._shutting_down = False
 
     @property
@@ -108,6 +110,12 @@ class DolphinPlusBleConnection:
             _LOGGER.debug("disconnect BleakError (ignored)", exc_info=True)
         self._client = None
         self._resolved = None
+        if self._iot_server is not None:
+            try:
+                await self._iot_server.unregister()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("IoT GATT server cleanup: %s", err)
+            self._iot_server = None
 
     async def _ensure_connected_locked(self) -> BleakClientWithServiceCache:
         if self._shutting_down:
@@ -136,6 +144,16 @@ class DolphinPlusBleConnection:
                 "Nordic UART (6e400001). Check logs for a full GATT service dump."
             )
         self._resolved = resolved
+        if resolved.uses_gatt_server_write and self._iot_server is None:
+            server = IotGattServer(self._entry_id)
+            try:
+                await server.register()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Dolphin Plus: IoT GATT server registration failed: %s", err
+                )
+            else:
+                self._iot_server = server
         _LOGGER.info(
             "Dolphin Plus v%s: connected %s transport=%s notify=%s",
             _INTEGRATION_VERSION,
@@ -165,6 +183,7 @@ class DolphinPlusBleConnection:
         fut: asyncio.Future[bytes | None] = loop.create_future()
 
         def _handler(_sender: Any, data: bytearray) -> None:
+            _LOGGER.debug("Dolphin Plus notify ← %s", bytes(data).hex())
             acc.extend(data)
             frames, remainder = iter_iot_frames(bytes(acc))
             acc.clear()
@@ -194,15 +213,24 @@ class DolphinPlusBleConnection:
                 "v0.1.2+ and remove any copy under ha-maytronics-dolphin."
             ) from err
 
-        if resolved.uses_gatt_server_write:
-            _LOGGER.debug(
-                "Dolphin Plus: IoT GATT write path uses client write fallback; "
-                "Plus app uses phone GATT-server notify for fd5abba1"
-            )
-
         try:
             await asyncio.sleep(0.15)
-            await self._write_payload(client, resolved, payload)
+            if resolved.uses_gatt_server_write:
+                sent = False
+                if self._iot_server is not None:
+                    try:
+                        sent = await self._iot_server.notify(payload)
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "Dolphin Plus: IoT GATT server notify failed: %s", err
+                        )
+                if not sent:
+                    _LOGGER.debug(
+                        "Dolphin Plus: falling back to client write for IoT command"
+                    )
+                    await self._write_payload(client, resolved, payload)
+            else:
+                await self._write_payload(client, resolved, payload)
             await asyncio.sleep(_POST_WRITE_DELAY)
             return await asyncio.wait_for(fut, timeout=timeout)
         except asyncio.TimeoutError:
