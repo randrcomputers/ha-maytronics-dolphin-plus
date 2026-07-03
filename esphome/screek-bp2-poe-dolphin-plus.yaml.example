@@ -1,0 +1,12 @@
+# SCREEK BP2-POE — add Maytronics Dolphin Plus IoT GATT support
+#
+# 1. Download SCREEK's SCREEK-BP2-POE.yaml (GitHub or screek.io/bp2-poe recovery tool)
+# 2. Save it in this folder as screek-bp2-poe.yaml
+# 3. Add the packages block below to the END of that file
+# 4. In screek-bp2-poe.yaml, set esp32_ble.max_connections: 5 (edit existing block)
+# 5. esphome compile screek-bp2-poe.yaml && esphome upload --device <IP>
+#
+# Full instructions: screek-bp2-poe-dolphin-plus.README.md
+
+packages:
+  maytronics_dolphin_plus: !include dolphin-plus-gatt-addon.yaml

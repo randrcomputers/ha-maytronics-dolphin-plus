@@ -1,13 +1,11 @@
-# Add to an EXISTING ESPHome bluetooth_proxy config.
+# Maytronics Dolphin Plus — IoT GATT server add-on for ESPHome Bluetooth proxies.
+# Include from your existing proxy YAML:
 #
-# Easiest: copy dolphin-plus-gatt-addon.yaml next to your YAML and add:
 #   packages:
 #     maytronics_dolphin_plus: !include dolphin-plus-gatt-addon.yaml
-# Then set esp32_ble.max_connections: 5 in your existing esp32_ble block.
 #
-# SCREEK BP2-POE users: see screek-bp2-poe-dolphin-plus.README.md
-
-# --- OR paste these blocks manually ---
+# Also ensure esp32_ble.max_connections is at least 5 (edit your existing esp32_ble
+# block — do not add a second esp32_ble key).
 
 esp32_ble_server:
   max_clients: 2
@@ -37,10 +35,10 @@ script:
       - ble_server.characteristic.notify:
           id: dolphin_iot_cmd
 
-# Merge into existing api: (one api key only):
-#   actions:
-#     - action: dolphin_iot_notify
-#       variables:
-#         payload: int[]
-#       then:
-#         - lambda: "id(dolphin_iot_notify_script)->execute(payload);"
+api:
+  actions:
+    - action: dolphin_iot_notify
+      variables:
+        payload: int[]
+      then:
+        - lambda: "id(dolphin_iot_notify_script)->execute(payload);"
