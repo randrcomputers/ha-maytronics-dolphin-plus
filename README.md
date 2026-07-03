@@ -1,7 +1,7 @@
 # Maytronics Dolphin Plus (BLE) for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-
+** i do not own a "plus" model so this integration needs users logs to get it in a working state. i developed the older bluetooth only "non plus" integration and that works perfectly so feedback and testing is very much needed for this**
 Community integration for **Maytronics Dolphin** robots paired with the **MyDolphin Plus** app (v3.x). Control power and read status locally over Bluetooth — no cloud account required for BLE control.
 
 > **Not the right integration?** Robots using the older **MyDolphin** app (GATT service `FFF0`) should use **[ha-maytronics-dolphin](https://github.com/randrcomputers/ha-maytronics-dolphin)** instead. The two integrations are separate; install only the one that matches your app.
