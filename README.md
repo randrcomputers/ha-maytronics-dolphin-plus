@@ -148,15 +148,6 @@ logger:
     custom_components.maytronics_dolphin_plus: debug
 ```
 
----
-
-## Supported hardware
-
-Protocol derived from **MyDolphin Plus Android 3.4** (`com.maytronics.app`) and community captures. Framing matches shipped `ble_iot_protocol.json` and aligns with [jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) notes. **Real-world confirmation on specific Plus models is still needed** — please report results via [issues](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
-
-
----
-
 ## Legal
 
 Maytronics®, Dolphin®, and MyDolphin® are trademarks of their respective owners. Independent community software — not endorsed by Maytronics.
