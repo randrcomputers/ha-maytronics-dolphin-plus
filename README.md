@@ -17,7 +17,6 @@ Protocol reverse-engineering and code progress are real, but **power on / status
 
 ### Proven alternative for Plus robots
 
-If you need something that already works today on Plus, use a **pool-side ESP32** with [jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) (tested on Nautilus CC Plus). That runs the dual-role BLE handshake on the ESP and exposes entities to Home Assistant over Wi‑Fi.
 
 ### How you can help
 
