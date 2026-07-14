@@ -235,7 +235,9 @@ class MaytronicsDolphinPlusOptionsFlow(config_entries.OptionsFlow):
                     },
                 ): selector.DeviceSelector(
                     selector.DeviceSelectorConfig(
-                        filter=selector.DeviceFilter(integration="esphome"),
+                        # DeviceFilter was removed in HA 2026.7. Use the
+                        # selector's native filter mapping instead.
+                        filter={"integration": "esphome"},
                     )
                 ),
                 vol.Required(
