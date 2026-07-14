@@ -1,6 +1,7 @@
 # Maytronics Dolphin Plus (BLE) for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![status](https://img.shields.io/badge/status-experimental%20%2F%20needs%20testers-orange)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues)
 
 Community integration for **Maytronics Dolphin** robots paired with the **MyDolphin Plus** app (v3.x). Control power and read status locally over Bluetooth — no cloud account required for BLE control.
 
@@ -8,12 +9,28 @@ Community integration for **Maytronics Dolphin** robots paired with the **MyDolp
 
 ---
 
-## What you get (v0.1.0)
+## Status: experimental — testers needed
+
+**This Plus BLE integration is not fully verified on real hardware.** The maintainer only owns a **legacy** (MyDolphin / `FFF0`) robot and **cannot** test MyDolphin Plus IoT power supplies in person.
+
+Protocol reverse-engineering and code progress are real, but **power on / status confirmation for IoT PSU models (e.g. E35i / IoT230) has not been confirmed end-to-end** without community testers. Expect rough edges; treat this as experimental until someone with a Plus PSU reports success.
+
+### Proven alternative for Plus robots
+
+If you need something that already works today on Plus, use a **pool-side ESP32** with [jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) (tested on Nautilus CC Plus). That runs the dual-role BLE handshake on the ESP and exposes entities to Home Assistant over Wi‑Fi.
+
+### How you can help
+
+If you have a MyDolphin Plus robot and are willing to share logs (model, BLE UUIDs, connect / power-on results), please open an [issue](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues). Testers are required to finish this integration.
+
+---
+
+## What you get (MVP)
 
 | Feature | Status |
 |---------|--------|
-| **Power on/off** | `start_up_dolphin` / `shutdown_dolphin` (IoT GATT or Nordic UART, auto-detected) |
-| **Status poll** | `system_status` → SM state, MU state, cleaning mode |
+| **Power on/off** | Experimental — IoT GATT / Nordic UART (auto-detected); needs confirmation on real Plus PSUs |
+| **Status poll** | Experimental — `system_status` → SM state, MU state, cleaning mode |
 | **Short BLE sessions** | Connect per command/poll, then disconnect (same pattern as the legacy integration) |
 | Schedule, autoclean, joystick, Pool Cleaner Card | Not yet — BLE MVP |
 
@@ -136,9 +153,9 @@ logger:
 
 ## Supported hardware
 
-Protocol derived from **MyDolphin Plus Android 3.4** (`com.maytronics.app`). Tested framing matches shipped `ble_iot_protocol.json`. Real-world confirmation on specific models is welcome via [issues](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
+Protocol derived from **MyDolphin Plus Android 3.4** (`com.maytronics.app`) and community captures. Framing matches shipped `ble_iot_protocol.json` and aligns with [jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) notes. **Real-world confirmation on specific Plus models is still needed** — please report results via [issues](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
 
-**WiFi / cloud control** is out of scope for this integration (Plus app uses AWS IoT for Wi-Fi path). For cloud Wi-Fi robots see community projects such as [dolphin-robot](https://github.com/sh00t2kill/dolphin-robot) / `mydolphin_plus`.
+**WiFi / cloud control** is out of scope for this integration (Plus app uses AWS IoT for Wi-Fi path). For cloud Wi-Fi robots see community projects such as [dolphin-robot](https://github.com/sh00t2kill/dolphin-robot) / `mydolphin_plus`. For a working **local** Plus path today, prefer [ESPHome Dolphin Plus](https://github.com/jimparis/esphome-dolphin-plus).
 
 ---
 
