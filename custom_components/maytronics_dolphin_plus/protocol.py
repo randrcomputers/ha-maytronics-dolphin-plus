@@ -1,12 +1,17 @@
 """Plus app IoT BLE frame builder (from ``ble_iot_protocol.json`` + APK 3.4).
 
 IoT checksum: 16-bit unsigned sum of all preceding bytes, big-endian (``Lq/f.a``).
+
+Outbound IoT GATT notify payloads are ASCII hex envelopes (not raw binary), e.g.
+``03:ab03fff806000002ab``. Inbound robot notifications use the same ``:`` envelope
+with a variable prefix; long frames are split across notify chunks.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from enum import IntEnum
 from functools import lru_cache
 from pathlib import Path
@@ -21,9 +26,14 @@ SRC_IOT = 0x03
 IOT_HEADER_LEN = 7  # sop + src + dest(2) + opcode + data_len(2)
 IOT_CHECKSUM_LEN = 2
 
+# Host→robot notify envelope used by Plus IoT PSUs (ESPHome + APK capture).
+IOT_NOTIFY_PREFIX = "03:"
+
 CMD_START_UP = "start_up_dolphin"
 CMD_SHUTDOWN = "shutdown_dolphin"
 CMD_SYSTEM_STATUS = "system_status"
+
+_HEX_CHARS = re.compile(rb"^[0-9a-fA-F]+$")
 
 
 class PowerState(IntEnum):
@@ -115,6 +125,21 @@ def build_system_status_request(spec: dict[str, Any]) -> bytes:
     return build_iot_command(spec, CMD_SYSTEM_STATUS)
 
 
+def encode_iot_notify_text(frame: bytes) -> bytes:
+    """Wrap a binary IoT frame for GATT-server notify (ASCII ``03:<hex>``)."""
+    return (IOT_NOTIFY_PREFIX + frame.hex()).encode("ascii")
+
+
+def looks_like_iot_ascii_chunk(data: bytes) -> bool:
+    """True if a notify chunk looks like Plus ASCII envelope text."""
+    if not data:
+        return False
+    if b":" in data:
+        return True
+    sample = data[:min(len(data), 32)]
+    return bool(_HEX_CHARS.match(sample))
+
+
 def _verify_iot_checksum(frame: bytes) -> bool:
     if len(frame) < IOT_HEADER_LEN + IOT_CHECKSUM_LEN:
         return False
@@ -123,7 +148,7 @@ def _verify_iot_checksum(frame: bytes) -> bool:
 
 
 def iter_iot_frames(buffer: bytes) -> tuple[list[bytes], bytes]:
-    """Split accumulated notify data into complete IoT frames; return remainder."""
+    """Split accumulated *binary* notify data into complete IoT frames."""
     frames: list[bytes] = []
     i = 0
     while i < len(buffer):
@@ -145,8 +170,81 @@ def iter_iot_frames(buffer: bytes) -> tuple[list[bytes], bytes]:
     return frames, buffer[i:]
 
 
+class IotAsciiRxBuffer:
+    """Reassemble IoT ASCII notify chunks (``[prefix]:<hex>``) into binary frames."""
+
+    def __init__(self) -> None:
+        self._text = ""
+
+    def feed(self, chunk: bytes) -> list[bytes]:
+        try:
+            text = chunk.decode("ascii", errors="ignore")
+        except Exception:  # noqa: BLE001
+            return []
+        if not text:
+            return []
+
+        if not self._text:
+            colon = text.find(":")
+            if colon < 0:
+                return []
+            self._text = text[colon:]
+        else:
+            self._text += text
+
+        return self._drain()
+
+    @property
+    def pending(self) -> bool:
+        return bool(self._text)
+
+    def _drain(self) -> list[bytes]:
+        frames: list[bytes] = []
+        while self._text:
+            colon = self._text.find(":")
+            if colon < 0:
+                self._text = ""
+                break
+            if colon > 0:
+                self._text = self._text[colon:]
+
+            hex_part = self._text[1:]
+            if len(hex_part) < IOT_HEADER_LEN * 2:
+                break
+            try:
+                header = bytes.fromhex(hex_part[: IOT_HEADER_LEN * 2])
+            except ValueError:
+                _LOGGER.debug("Plus BLE: bad ASCII header; clearing rx buffer")
+                self._text = ""
+                break
+            if len(header) < IOT_HEADER_LEN or header[0] != SOP_IOT:
+                self._text = ""
+                break
+
+            data_len = (header[5] << 8) | header[6]
+            frame_len = IOT_HEADER_LEN + data_len + IOT_CHECKSUM_LEN
+            need_hex = frame_len * 2
+            if len(hex_part) < need_hex:
+                break
+            try:
+                frame = bytes.fromhex(hex_part[:need_hex])
+            except ValueError:
+                _LOGGER.debug("Plus BLE: bad ASCII frame hex; clearing rx buffer")
+                self._text = ""
+                break
+            self._text = hex_part[need_hex:]
+            if _verify_iot_checksum(frame):
+                frames.append(frame)
+            else:
+                _LOGGER.debug(
+                    "Plus BLE: dropping ASCII frame with bad checksum: %s",
+                    frame.hex(),
+                )
+        return frames
+
+
 def parse_iot_frame_payload(frame: bytes) -> tuple[int, int, bytes]:
-    """Return (opcode, destination_hi_lo as int pair conceptually), payload."""
+    """Return (opcode, data_len, payload including leading ACK when present)."""
     if len(frame) < IOT_HEADER_LEN + IOT_CHECKSUM_LEN:
         raise ValueError("frame too short")
     opcode = frame[4]
@@ -156,13 +254,15 @@ def parse_iot_frame_payload(frame: bytes) -> tuple[int, int, bytes]:
 
 
 def parse_system_status(payload: bytes) -> dict[str, int | None]:
-    """Map ``system_status`` response bytes (53-byte field map, relative offsets)."""
-    if len(payload) < 2:
+    """Map ``system_status`` response bytes after removing the leading ACK."""
+    # Wire layout: ACK + mu_state + sm_state + filter + cleaning_mode + ...
+    data = payload[1:] if payload else b""
+    if len(data) < 2:
         return {"mu_state": None, "sm_state": None, "cleaning_mode": None}
     return {
-        "mu_state": payload[0],
-        "sm_state": payload[1],
-        "cleaning_mode": payload[3] if len(payload) > 3 else None,
+        "mu_state": data[0],
+        "sm_state": data[1],
+        "cleaning_mode": data[3] if len(data) > 3 else None,
     }
 
 

@@ -1,8 +1,6 @@
-TESTERS ONLY # Maytronics Dolphin Plus (BLE) for Home Assistant
+# Maytronics Dolphin Plus (BLE) for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-
-** i do not own a "plus" model so this integration needs users logs to get it in a working state. i developed the older bluetooth only "non plus" integration and that works perfectly so feedback and testing is very much needed for this**
 
 Community integration for **Maytronics Dolphin** robots paired with the **MyDolphin Plus** app (v3.x). Control power and read status locally over Bluetooth — no cloud account required for BLE control.
 
@@ -94,9 +92,9 @@ You do **not** need both integrations unless you own two different robots.
 
 ---
 
-## Bluetooth & proxies (v0.1.8+)
+## Bluetooth & proxies (v0.1.9+)
 
-IoT PSU robots need commands sent via a **mirrored GATT server** (`fd5abba0` / `fd5abba1` notify), not a normal client write. The integration supports **two backends**:
+IoT PSU robots need commands sent via a **mirrored GATT server** (`fd5abba0` / `fd5abba1` notify), not a normal client write. Payloads are ASCII envelopes (`03:<hex>`), matching the Plus app / proven ESPHome implementations.
 
 | Backend | When to use | Setup |
 |---------|-------------|--------|
@@ -122,7 +120,7 @@ IoT PSU robots need commands sent via a **mirrored GATT server** (`fd5abba0` / `
 
 1. Confirm the robot appears under **Settings → Bluetooth** when awake and in range.
 2. **Close MyDolphin Plus** on your phone — only one BLE client at a time.
-3. For **IoT PSU** with a proxy: flash the [dolphin-plus ESPHome example](esphome/dolphin-plus-ble-proxy.yaml.example) and select it in integration options.
+3. For **IoT PSU** with a proxy: flash the [dolphin-plus GATT add-on](esphome/dolphin-plus-gatt-addon.yaml) — **SCREEK BP2-POE:** see [screek-bp2-poe-dolphin-plus.README.md](esphome/screek-bp2-poe-dolphin-plus.README.md) — then select the ESP in integration options.
 4. For **IoT PSU** with a dongle: use **Auto** or **Local BlueZ**; the adapter must be in range of the PSU.
 5. For **Nordic UART** robots, a standard [Bluetooth proxy](https://www.home-assistant.io/integrations/bluetooth/) is fine.
 6. If power works but status stays unknown, open an issue with debug logs:

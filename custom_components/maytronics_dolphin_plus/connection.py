@@ -35,7 +35,10 @@ from .protocol import (
     build_shutdown,
     build_startup,
     build_system_status_request,
+    encode_iot_notify_text,
+    IotAsciiRxBuffer,
     iter_iot_frames,
+    looks_like_iot_ascii_chunk,
     parse_iot_frame_payload,
     parse_system_status,
 )
@@ -48,7 +51,7 @@ from .transport_discovery import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTEGRATION_VERSION = "0.1.8"
+_INTEGRATION_VERSION = "0.1.9"
 
 _BLE_CONNECT_TIMEOUT = 35.0
 _NOTIFY_TIMEOUT = 4.0
@@ -228,9 +231,11 @@ class DolphinPlusBleConnection:
             )
 
     async def _iot_gatt_notify_locked(self, payload: bytes) -> bool:
+        # Plus IoT PSUs expect ASCII ``03:<hex>``, not raw binary (jimparis / APK).
+        wire = encode_iot_notify_text(payload)
         if self._iot_gatt_mode == "bluez" and self._iot_server is not None:
             try:
-                return await self._iot_server.notify(payload)
+                return await self._iot_server.notify(wire)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
                     "Dolphin Plus: BlueZ IoT GATT server notify failed: %s", err
@@ -239,7 +244,7 @@ class DolphinPlusBleConnection:
         if self._iot_gatt_mode == "esphome" and self._esphome_notify_service:
             try:
                 return await async_esphome_iot_notify(
-                    self.hass, self._esphome_notify_service, payload
+                    self.hass, self._esphome_notify_service, wire
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
@@ -264,15 +269,22 @@ class DolphinPlusBleConnection:
             )
 
         acc = bytearray()
+        ascii_rx = IotAsciiRxBuffer()
+        use_ascii = True  # IoT transport uses ASCII envelopes on notify
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[bytes | None] = loop.create_future()
 
         def _handler(_sender: Any, data: bytearray) -> None:
-            _LOGGER.debug("Dolphin Plus notify ← %s", bytes(data).hex())
-            acc.extend(data)
-            frames, remainder = iter_iot_frames(bytes(acc))
-            acc.clear()
-            acc.extend(remainder)
+            chunk = bytes(data)
+            _LOGGER.debug("Dolphin Plus notify ← %s", chunk.hex())
+            frames: list[bytes]
+            if use_ascii and (looks_like_iot_ascii_chunk(chunk) or ascii_rx.pending):
+                frames = ascii_rx.feed(chunk)
+            else:
+                acc.extend(chunk)
+                frames, remainder = iter_iot_frames(bytes(acc))
+                acc.clear()
+                acc.extend(remainder)
             for frame in frames:
                 opcode, _data_len, body = parse_iot_frame_payload(frame)
                 if expect_opcode is not None and opcode != expect_opcode:
@@ -284,6 +296,7 @@ class DolphinPlusBleConnection:
         resolved = self._resolved
         if resolved is None:
             raise HomeAssistantError("Plus BLE transport not resolved")
+        use_ascii = resolved.transport == TRANSPORT_IOT_GATT
 
         try:
             await client.start_notify(resolved.notify_uuid, _handler)
@@ -301,13 +314,18 @@ class DolphinPlusBleConnection:
         try:
             await asyncio.sleep(0.15)
             if resolved.uses_gatt_server_write:
+                wire = encode_iot_notify_text(payload)
+                _LOGGER.info(
+                    "Dolphin Plus IoT notify wire → %s",
+                    wire.decode("ascii", errors="replace"),
+                )
                 sent = await self._iot_gatt_notify_locked(payload)
                 if not sent:
                     _LOGGER.warning(
                         "Dolphin Plus: IoT GATT server notify unavailable; "
                         "trying client write fallback (often ignored by IoT PS)"
                     )
-                    await self._write_payload(client, resolved, payload)
+                    await self._write_payload(client, resolved, wire)
             else:
                 await self._write_payload(client, resolved, payload)
             await asyncio.sleep(_POST_WRITE_DELAY)
