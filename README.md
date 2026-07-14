@@ -154,7 +154,6 @@ logger:
 
 Protocol derived from **MyDolphin Plus Android 3.4** (`com.maytronics.app`) and community captures. Framing matches shipped `ble_iot_protocol.json` and aligns with [jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) notes. **Real-world confirmation on specific Plus models is still needed** — please report results via [issues](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
 
-**WiFi / cloud control** is out of scope for this integration (Plus app uses AWS IoT for Wi-Fi path). For cloud Wi-Fi robots see community projects such as [dolphin-robot](https://github.com/sh00t2kill/dolphin-robot) / `mydolphin_plus`. For a working **local** Plus path today, prefer [ESPHome Dolphin Plus](https://github.com/jimparis/esphome-dolphin-plus).
 
 ---
 
