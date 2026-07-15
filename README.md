@@ -17,10 +17,6 @@ Recent community fix: options / configure UI works on **Home Assistant 2026.7** 
 
 IoT PSU command path needs a radio that can host the mirrored GATT server (HA dongle near the PSU, or ESPHome add-on) — a stock proxy alone is not enough for commands. Reports, logs, and pull requests are welcome via [issues](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
 
-### Working local alternative
-
-[jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) — pool-side ESP32 running dual-role BLE (tested on Nautilus CC Plus).
-
 ---
 
 ## What you get (v0.1.10)
