@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+.env
+.DS_Store
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+esphome/.esphome/
+secrets.yaml
