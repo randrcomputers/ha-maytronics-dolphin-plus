@@ -2,7 +2,6 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![version](https://img.shields.io/badge/version-0.1.10-blue)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/releases)
-[![status](https://img.shields.io/badge/status-experimental%20%2F%20community%20testers-orange)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues)
 
 Community integration for **Maytronics Dolphin** robots paired with the **MyDolphin Plus** app (v3.x). Control power and read status locally over Bluetooth — no cloud account required for BLE control.
 
@@ -10,39 +9,28 @@ Community integration for **Maytronics Dolphin** robots paired with the **MyDolp
 
 ---
 
-## Status: experimental — community testers welcome
+## Maintainer note
 
-The maintainer only owns a **legacy** (MyDolphin / `FFF0`) robot and **cannot** personally verify Plus / IoT power supplies. Progress depends on owners sharing logs and fixes.
+The maintainer only owns a **legacy** (MyDolphin / `FFF0`) robot and **cannot** personally verify every Plus / IoT power supply. This integration advances with **community testing and PRs**.
 
-**Where things stand:**
+Recent community fix: options / configure UI works on **Home Assistant 2026.7** as of **v0.1.10** ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3)).
 
-| Area | Notes |
-|------|--------|
-| Protocol reverse-engineering | Active — IoT GATT frames, ASCII `03:<hex>` envelopes, dual-role notify path |
-| Options / configure UI | Working on **Home Assistant 2026.7** as of **v0.1.10** ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3) — thanks community) |
-| End-to-end power on (IoT PSU) | Still needs confirmation on more hardware setups (dongle near PSU, or ESPHome GATT add-on) |
-| Stock Bluetooth proxy only | Not enough for IoT PSU **commands** — see Bluetooth section below |
+IoT PSU command path needs a radio that can host the mirrored GATT server (HA dongle near the PSU, or ESPHome add-on) — a stock proxy alone is not enough for commands. Reports, logs, and pull requests are welcome via [issues](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
 
-Expect rough edges. If something works (or fails) on your model, please open an [issue](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
+### Working local alternative
 
-### Proven alternative for Plus robots
-
-If you need a **known-working local Plus path today**, use a pool-side ESP32 with [jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) (tested on Nautilus CC Plus). That runs the dual-role BLE handshake on the ESP and exposes entities to Home Assistant over Wi‑Fi.
-
-### How you can help
-
-Share robot/PSU model, BLE UUIDs from a GATT dump, and connect / power-on logs. Pull requests that fix real HA versions or hardware setups are very welcome.
+[jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) — pool-side ESP32 running dual-role BLE (tested on Nautilus CC Plus).
 
 ---
 
-## What you get (MVP — v0.1.10)
+## What you get (v0.1.10)
 
 | Feature | Status |
 |---------|--------|
-| **Power on/off** | Experimental — IoT GATT / Nordic UART (auto-detected); needs confirmation on real Plus PSUs |
-| **Status poll** | Experimental — `system_status` → SM state, MU state, cleaning mode |
+| **Power on/off** | IoT GATT / Nordic UART (auto-detected) |
+| **Status poll** | `system_status` → SM state, MU state, cleaning mode |
 | **Short BLE sessions** | Connect per command/poll, then disconnect (same pattern as the legacy integration) |
-| **Options flow** | Fixed for HA 2026.7+ (`DeviceSelector` filter) |
+| **Options flow** | Fixed for HA 2026.7+ ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3)) |
 | Schedule, autoclean, joystick, Pool Cleaner Card | Not yet — BLE MVP |
 
 ---
