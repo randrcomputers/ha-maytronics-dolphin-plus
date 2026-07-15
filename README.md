@@ -1,7 +1,8 @@
 # Maytronics Dolphin Plus (BLE) for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![status](https://img.shields.io/badge/status-experimental%20%2F%20needs%20testers-orange)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues)
+[![version](https://img.shields.io/badge/version-0.1.10-blue)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/releases)
+[![status](https://img.shields.io/badge/status-experimental%20%2F%20community%20testers-orange)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues)
 
 Community integration for **Maytronics Dolphin** robots paired with the **MyDolphin Plus** app (v3.x). Control power and read status locally over Bluetooth — no cloud account required for BLE control.
 
@@ -9,28 +10,39 @@ Community integration for **Maytronics Dolphin** robots paired with the **MyDolp
 
 ---
 
-## Status: experimental — testers needed
+## Status: experimental — community testers welcome
 
-**This Plus BLE integration is not fully verified on real hardware.** The maintainer only owns a **legacy** (MyDolphin / `FFF0`) robot and **cannot** test MyDolphin Plus IoT power supplies in person.
+The maintainer only owns a **legacy** (MyDolphin / `FFF0`) robot and **cannot** personally verify Plus / IoT power supplies. Progress depends on owners sharing logs and fixes.
 
-Protocol reverse-engineering and code progress are real, but **power on / status confirmation for IoT PSU models (e.g. E35i / IoT230) has not been confirmed end-to-end** without community testers. Expect rough edges; treat this as experimental until someone with a Plus PSU reports success.
+**Where things stand:**
+
+| Area | Notes |
+|------|--------|
+| Protocol reverse-engineering | Active — IoT GATT frames, ASCII `03:<hex>` envelopes, dual-role notify path |
+| Options / configure UI | Working on **Home Assistant 2026.7** as of **v0.1.10** ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3) — thanks community) |
+| End-to-end power on (IoT PSU) | Still needs confirmation on more hardware setups (dongle near PSU, or ESPHome GATT add-on) |
+| Stock Bluetooth proxy only | Not enough for IoT PSU **commands** — see Bluetooth section below |
+
+Expect rough edges. If something works (or fails) on your model, please open an [issue](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
 
 ### Proven alternative for Plus robots
 
+If you need a **known-working local Plus path today**, use a pool-side ESP32 with [jimparis/esphome-dolphin-plus](https://github.com/jimparis/esphome-dolphin-plus) (tested on Nautilus CC Plus). That runs the dual-role BLE handshake on the ESP and exposes entities to Home Assistant over Wi‑Fi.
 
 ### How you can help
 
-If you have a MyDolphin Plus robot and are willing to share logs (model, BLE UUIDs, connect / power-on results), please open an [issue](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues). Testers are required to finish this integration.
+Share robot/PSU model, BLE UUIDs from a GATT dump, and connect / power-on logs. Pull requests that fix real HA versions or hardware setups are very welcome.
 
 ---
 
-## What you get (MVP)
+## What you get (MVP — v0.1.10)
 
 | Feature | Status |
 |---------|--------|
 | **Power on/off** | Experimental — IoT GATT / Nordic UART (auto-detected); needs confirmation on real Plus PSUs |
 | **Status poll** | Experimental — `system_status` → SM state, MU state, cleaning mode |
 | **Short BLE sessions** | Connect per command/poll, then disconnect (same pattern as the legacy integration) |
+| **Options flow** | Fixed for HA 2026.7+ (`DeviceSelector` filter) |
 | Schedule, autoclean, joystick, Pool Cleaner Card | Not yet — BLE MVP |
 
 ---
@@ -39,7 +51,7 @@ If you have a MyDolphin Plus robot and are willing to share logs (model, BLE UUI
 
 | Requirement | Notes |
 |-------------|--------|
-| **Home Assistant 2024.1+** | HAOS, Supervised, Container, or Core |
+| **Home Assistant 2024.1+** | HAOS, Supervised, Container, or Core. **Use v0.1.10+** on Home Assistant **2026.7** (options flow) |
 | **Bluetooth** | See **Bluetooth & proxies** below — IoT PSU models need a **local BlueZ adapter on the HA host** |
 | **Robot BLE MAC** | From **Settings → Devices & services → Bluetooth**, or nRF Connect |
 | **MyDolphin Plus app** | Close the app on your phone while HA is controlling the robot |
@@ -108,7 +120,7 @@ You do **not** need both integrations unless you own two different robots.
 
 ---
 
-## Bluetooth & proxies (v0.1.9+)
+## Bluetooth & proxies (v0.1.10+)
 
 IoT PSU robots need commands sent via a **mirrored GATT server** (`fd5abba0` / `fd5abba1` notify), not a normal client write. Payloads are ASCII envelopes (`03:<hex>`), matching the Plus app / proven ESPHome implementations.
 
@@ -147,6 +159,14 @@ logger:
   logs:
     custom_components.maytronics_dolphin_plus: debug
 ```
+
+## Changelog (recent)
+
+| Version | Notes |
+|---------|--------|
+| **0.1.10** | Options flow for HA 2026.7 ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3)); drop tracked `__pycache__` |
+| **0.1.9** | IoT notify ASCII envelope (`03:<hex>`); status ACK offset; ESPHome / BlueZ backends |
+| **0.1.8** | Dual IoT command backends (BlueZ + ESPHome GATT notify) |
 
 ## Legal
 
