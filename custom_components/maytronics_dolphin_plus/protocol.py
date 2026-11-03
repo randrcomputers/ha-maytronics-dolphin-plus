@@ -209,6 +209,25 @@ def _verify_iot_checksum(frame: bytes) -> bool:
     return iot_checksum(body) == cs
 
 
+def _inclusive_checksum_frame(buffer: bytes, start: int, data_len: int) -> bytes | None:
+    """Return a frame whose ``data_len`` already includes the checksum.
+
+    AW5/M7 firmware does this and sends a checksum that does not match the
+    sum. Take ``7 + data_len`` only when that slice ends the buffer or the
+    next byte is a new start-of-packet, so a strict frame with a bad
+    checksum is not shortened, and a second frame in the same buffer is not
+    swallowed as the checksum.
+    """
+    if data_len < IOT_CHECKSUM_LEN:
+        return None
+    end = start + IOT_HEADER_LEN + data_len
+    if end > len(buffer):
+        return None
+    if end < len(buffer) and buffer[end] != SOP_IOT:
+        return None
+    return buffer[start:end]
+
+
 def iter_iot_frames(buffer: bytes) -> tuple[list[bytes], bytes]:
     """Split accumulated *binary* notify data into complete IoT frames."""
     frames: list[bytes] = []
@@ -222,28 +241,31 @@ def iter_iot_frames(buffer: bytes) -> tuple[list[bytes], bytes]:
         data_len = (buffer[i + 5] << 8) | buffer[i + 6]
         total = IOT_HEADER_LEN + data_len + IOT_CHECKSUM_LEN
         if i + total > len(buffer):
-            # Some firmwares (e.g. AW5) count the 2-byte checksum *inside*
-            # data_len and their trailing checksum does not match the app's
-            # sum. Accept a full 7+data_len frame unverified in that case.
-            total_lenient = IOT_HEADER_LEN + data_len
-            if (
-                data_len >= IOT_CHECKSUM_LEN
-                and total_lenient >= IOT_HEADER_LEN + IOT_CHECKSUM_LEN
-                and i + total_lenient <= len(buffer)
-            ):
-                frame = buffer[i : i + total_lenient]
-                _LOGGER.debug(
-                    "Plus BLE: accepting unverified frame (dlen includes cs): %s",
-                    frame.hex(),
-                )
-                frames.append(frame)
-                i += total_lenient
-            break
+            frame = _inclusive_checksum_frame(buffer, i, data_len)
+            if frame is None:
+                break
+            _LOGGER.debug(
+                "Plus BLE: accepting unverified frame (dlen includes cs): %s",
+                frame.hex(),
+            )
+            frames.append(frame)
+            i += len(frame)
+            continue
         frame = buffer[i : i + total]
         if _verify_iot_checksum(frame):
             frames.append(frame)
-        else:
-            _LOGGER.debug("Plus BLE: dropping frame with bad checksum: %s", frame.hex())
+            i += total
+            continue
+        short = _inclusive_checksum_frame(buffer, i, data_len)
+        if short is not None:
+            _LOGGER.debug(
+                "Plus BLE: accepting unverified frame (dlen includes cs): %s",
+                short.hex(),
+            )
+            frames.append(short)
+            i += len(short)
+            continue
+        _LOGGER.debug("Plus BLE: dropping frame with bad checksum: %s", frame.hex())
         i += total
     return frames, buffer[i:]
 
@@ -281,12 +303,23 @@ class IotAsciiRxBuffer:
         while self._text:
             colon = self._text.find(":")
             if colon < 0:
-                self._text = ""
-                break
-            if colon > 0:
-                self._text = self._text[colon:]
-
-            hex_part = self._text[1:]
+                # A previous frame in this envelope left raw hex. Keep parsing
+                # when it is another SOP; otherwise it is an incomplete chunk.
+                if len(self._text) < IOT_HEADER_LEN * 2:
+                    break
+                try:
+                    hdr = bytes.fromhex(self._text[: IOT_HEADER_LEN * 2])
+                except ValueError:
+                    self._text = ""
+                    break
+                if not hdr or hdr[0] != SOP_IOT:
+                    self._text = ""
+                    break
+                hex_part = self._text
+            else:
+                if colon > 0:
+                    self._text = self._text[colon:]
+                hex_part = self._text[1:]
             if len(hex_part) < IOT_HEADER_LEN * 2:
                 break
             try:
@@ -302,43 +335,68 @@ class IotAsciiRxBuffer:
             data_len = (header[5] << 8) | header[6]
             frame_len = IOT_HEADER_LEN + data_len + IOT_CHECKSUM_LEN
             need_hex = frame_len * 2
-            if len(hex_part) < need_hex:
-                # Firmware quirk (AW5): data_len includes the checksum bytes
-                # and the trailing checksum itself is bogus. Accept a full
-                # 7+data_len frame unverified.
-                need_lenient = (IOT_HEADER_LEN + data_len) * 2
-                if (
-                    data_len >= IOT_CHECKSUM_LEN
-                    and len(hex_part) >= need_lenient
-                ):
-                    try:
-                        frame = bytes.fromhex(hex_part[:need_lenient])
-                    except ValueError:
-                        self._text = ""
-                        break
-                    self._text = hex_part[need_lenient:]
-                    _LOGGER.debug(
-                        "Plus BLE: accepting unverified ASCII frame "
-                        "(dlen includes cs): %s",
-                        frame.hex(),
-                    )
-                    frames.append(frame)
-                    continue
+            need_lenient = (IOT_HEADER_LEN + data_len) * 2
+
+            def _lenient_cut_ok(rest: str) -> bool:
+                """True when 7+data_len lands on a frame boundary."""
+                if not rest or rest.startswith(":"):
+                    return True
+                # Next envelope in the same chunk: ``03:ab...`` (a colon
+                # cannot occur inside the hex payload).
+                colon = rest.find(":")
+                if 0 <= colon <= 16:
+                    return True
+                if len(rest) < 2:
+                    return False
+                try:
+                    nxt = bytes.fromhex(rest[:2])
+                except ValueError:
+                    return False
+                return bool(nxt) and nxt[0] == SOP_IOT
+
+            def _lenient_ascii_frame() -> bytes | None:
+                # AW5/M7: data_len includes the checksum and the sum does not
+                # match. Accept the shorter frame only on a clean cut.
+                if data_len < IOT_CHECKSUM_LEN or len(hex_part) < need_lenient:
+                    return None
+                if not _lenient_cut_ok(hex_part[need_lenient:]):
+                    return None
+                try:
+                    return bytes.fromhex(hex_part[:need_lenient])
+                except ValueError:
+                    return None
+
+            strict_frame: bytes | None = None
+            if len(hex_part) >= need_hex:
+                try:
+                    strict_frame = bytes.fromhex(hex_part[:need_hex])
+                except ValueError:
+                    strict_frame = None
+            if strict_frame is not None and _verify_iot_checksum(strict_frame):
+                self._text = hex_part[need_hex:]
+                frames.append(strict_frame)
+                continue
+            short = _lenient_ascii_frame()
+            if short is not None:
+                self._text = hex_part[need_lenient:]
+                _LOGGER.debug(
+                    "Plus BLE: accepting unverified ASCII frame "
+                    "(dlen includes cs): %s",
+                    short.hex(),
+                )
+                frames.append(short)
+                continue
+            if strict_frame is None and len(hex_part) < need_hex:
                 break
-            try:
-                frame = bytes.fromhex(hex_part[:need_hex])
-            except ValueError:
+            if strict_frame is None:
                 _LOGGER.debug("Plus BLE: bad ASCII frame hex; clearing rx buffer")
                 self._text = ""
                 break
             self._text = hex_part[need_hex:]
-            if _verify_iot_checksum(frame):
-                frames.append(frame)
-            else:
-                _LOGGER.debug(
-                    "Plus BLE: dropping ASCII frame with bad checksum: %s",
-                    frame.hex(),
-                )
+            _LOGGER.debug(
+                "Plus BLE: dropping ASCII frame with bad checksum: %s",
+                strict_frame.hex(),
+            )
         return frames
 
 
@@ -516,7 +574,7 @@ def parse_system_status(payload: bytes) -> dict[str, Any]:
             out["faults_value_1"] = u16(24)
             out["faults_value_2"] = u16(26)
             out["faults_value_3"] = u16(28)
-    if len(data) >= 51:
+    if len(data) >= 52:
         durations = {
             name: int.from_bytes(data[30 + 2 * i : 32 + 2 * i], "big")
             for i, name in enumerate(MODE_DURATION_ORDER)
