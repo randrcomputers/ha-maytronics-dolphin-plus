@@ -1,7 +1,7 @@
 # Maytronics Dolphin Plus (BLE) for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![version](https://img.shields.io/badge/version-0.1.10-blue)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/releases)
+[![version](https://img.shields.io/badge/version-0.1.11-blue)](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/releases)
 
 Community integration for **Maytronics Dolphin** robots paired with the **MyDolphin Plus** app (v3.x). Control power and read status locally over Bluetooth — no cloud account required for BLE control.
 
@@ -13,7 +13,7 @@ Community integration for **Maytronics Dolphin** robots paired with the **MyDolp
 
 The maintainer only owns a **legacy** (MyDolphin / `FFF0`) robot and **cannot** personally verify every Plus / IoT power supply. This integration advances with **community testing and PRs**.
 
-Recent community fix: options / configure UI works on **Home Assistant 2026.7** as of **v0.1.10** ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3)).
+Recent community fix: options / configure UI works on **Home Assistant 2026.7** as of **v0.1.10** ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3)). **v0.1.11** adds the status and control work exercised live on an AW5 / M7-class power supply.
 
 IoT PSU command path needs a radio that can host the mirrored GATT server (HA dongle near the PSU, or ESPHome add-on) — a stock proxy alone is not enough for commands. Reports, logs, and pull requests are welcome via [issues](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/issues).
 
@@ -23,15 +23,19 @@ IoT PSU command path needs a radio that can host the mirrored GATT server (HA do
 
 ---
 
-## What you get (v0.1.10)
+## What you get (v0.1.11)
 
 | Feature | Status |
 |---------|--------|
 | **Power on/off** | IoT GATT / Nordic UART (auto-detected) |
-| **Status poll** | `system_status` → SM state, MU state, cleaning mode |
+| **Status poll** | `system_status`: PWS state, robot state, cleaning mode, cycle progress, filter state, fault status |
+| **Cleaning mode** | Select. Choosing a program **starts that cycle** (same as the Plus app) |
+| **Cycle time** | Number, 5–240 minutes, when the power supply reports a cycle length |
+| **Drive** | `maytronics_dolphin_plus.drive` (max 5 s, then stop and leave remote mode), `quit_manual_drive`, `reset_filter_indicator` |
 | **Short BLE sessions** | Connect per command/poll, then disconnect (same pattern as the legacy integration) |
 | **Options flow** | Fixed for HA 2026.7+ ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3)) |
-| Schedule, autoclean, joystick, Pool Cleaner Card | Not yet — BLE MVP |
+| **ESPHome proxy YAML** | Builds on ESPHome 2026.10+ |
+| Schedule, autoclean, Pool Cleaner Card | Not yet |
 
 ---
 
@@ -108,9 +112,9 @@ You do **not** need both integrations unless you own two different robots.
 
 ---
 
-## Bluetooth & proxies (v0.1.10+)
+## Bluetooth & proxies (v0.1.11+)
 
-IoT PSU robots need commands sent via a **mirrored GATT server** (`fd5abba0` / `fd5abba1` notify), not a normal client write. Payloads are ASCII envelopes (`03:<hex>`), matching the Plus app / proven ESPHome implementations.
+IoT PSU robots need commands sent via a **mirrored GATT server** (`fd5abba0` / `fd5abba1` notify), not a normal client write. Payloads are ASCII envelopes (`03:<hex>`), matching the Plus app / proven ESPHome implementations. Reflash the GATT add-on from this release if the proxy YAML fails to compile on ESPHome 2026.10 or newer.
 
 | Backend | When to use | Setup |
 |---------|-------------|--------|
@@ -152,6 +156,7 @@ logger:
 
 | Version | Notes |
 |---------|--------|
+| **0.1.11** | AW5/M7 status frames whose length includes the checksum; full `system_status` sensors; cleaning-mode select (starts the cycle), cycle time, drive / quit / reset-filter; ESPHome 2026.10 GATT add-on compile fix. From [@bundabrg-hermes](https://github.com/bundabrg-hermes/ha-maytronics-dolphin-plus), run live on an AW5. |
 | **0.1.10** | Options flow for HA 2026.7 ([#3](https://github.com/randrcomputers/ha-maytronics-dolphin-plus/pull/3)); drop tracked `__pycache__` |
 | **0.1.9** | IoT notify ASCII envelope (`03:<hex>`); status ACK offset; ESPHome / BlueZ backends |
 | **0.1.8** | Dual IoT command backends (BlueZ + ESPHome GATT notify) |
